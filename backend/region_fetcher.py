@@ -123,29 +123,10 @@ async def fetch_aliyun_regions(client: httpx.AsyncClient) -> list:
 
 
 async def fetch_tencent_regions(client: httpx.AsyncClient) -> list:
-    try:
-        headers = {**HEADERS, "Origin": "https://buy.cloud.tencent.com", "Referer": "https://buy.cloud.tencent.com/price/cvm",
-                   "x-referer": "https://buy.cloud.tencent.com/price/cvm", "x-intl": "false", "x-csrfcode": "",
-                   "x-seqid": "00000000-0000-0000-0000-000000000000", "x-lid": "auto-compare",
-                   "x-life": str(int(time.time() * 1000))}
-        resp = await client.post(
-            "https://workbench.cloud.tencent.com/cgi/api?i=region/DescribeRegionsAndZones&uin=&region=",
-            json={"serviceType": "region", "action": "DescribeRegionsAndZones", "region": "", "data": {}, "cgiName": "api"},
-            headers=headers, timeout=15,
-        )
-        data = resp.json()
-        regions_raw = data.get("data", {}).get("Response", {}).get("RegionSet", [])
-        result = []
-        for r in regions_raw:
-            rid = r.get("Region", "")
-            if rid in TENCENT_REGION_NAMES:
-                country, city = TENCENT_REGION_NAMES[rid]
-            else:
-                country, city = "其他", rid
-            result.append({"id": rid, "country": country, "city": city, "provider": "tencent"})
-        return result
-    except:
-        return []
+    result = []
+    for rid, (country, city) in TENCENT_REGION_NAMES.items():
+        result.append({"id": rid, "country": country, "city": city, "provider": "tencent"})
+    return result
 
 
 async def fetch_huawei_regions(client: httpx.AsyncClient) -> list:
