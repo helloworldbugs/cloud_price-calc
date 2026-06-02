@@ -45,10 +45,6 @@ SPECS = [
     {"cpu": 128, "mem": 512, "label": "128核512G"},
 ]
 
-DISK_OPTIONS = [40, 50, 100, 200, 500, 1000]
-
-BANDWIDTH_OPTIONS = [1, 2, 5, 10, 20, 50, 100, 200, 500]
-
 ALIYUN_INSTANCE_MAP = {
     (1, 1): "ecs.t6-c1m1.large",
     (1, 2): "ecs.t6-c1m2.large",
@@ -111,7 +107,3 @@ HUAWEI_INSTANCE_MAP = {
     (128, 256): "s6.32xlarge.256",
     (128, 512): "s6.32xlarge.512",
 }
-
-ALIYUN_DISK_CATEGORY = "cloud_essd"
-TENCENT_DISK_TYPE = "CLOUD_BSSD"
-HUAWEI_DISK_TYPE = "SAS"

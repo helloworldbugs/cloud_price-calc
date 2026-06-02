@@ -1,7 +1,9 @@
 import httpx
 import asyncio
 import re
-import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -118,7 +120,8 @@ async def fetch_aliyun_regions(client: httpx.AsyncClient) -> list:
                 country, city = "其他", m.group(0) if m else rid
             result.append({"id": rid, "country": country, "city": city, "provider": "aliyun"})
         return result
-    except:
+    except Exception:
+        logger.exception("Failed to fetch Aliyun regions")
         return []
 
 
@@ -147,7 +150,8 @@ async def fetch_huawei_regions(client: httpx.AsyncClient) -> list:
                 country, city = "其他", rid
             result.append({"id": rid, "country": country, "city": city, "provider": "huawei"})
         return result
-    except:
+    except Exception:
+        logger.exception("Failed to fetch Huawei regions")
         return []
 
 
@@ -168,7 +172,9 @@ async def build_country_city_map() -> dict:
         key = (country, city)
         if key not in city_providers:
             city_providers[key] = {}
-        city_providers[key][provider] = region_id
+        city_providers[key].setdefault(provider, [])
+        if region_id not in city_providers[key][provider]:
+            city_providers[key][provider].append(region_id)
 
     result = {}
     for (country, city), providers in city_providers.items():

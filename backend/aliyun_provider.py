@@ -1,7 +1,9 @@
 import httpx
 import re
 import asyncio
-from config import ALIYUN_DISK_CATEGORY
+import logging
+
+logger = logging.getLogger(__name__)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -93,20 +95,18 @@ async def get_instance_types(region_id: str) -> list:
         resp = await client.get(url, headers=HEADERS, params=params)
         data = resp.json()
         instances_raw = data.get("data", {}).get("optimized", [])
-        seen = set()
         result = []
         for inst in instances_raw:
             type_name = inst.get("value", "")
             if not type_name:
                 continue
             cpu, mem = _parse_instance_type(type_name)
-            key = (cpu, mem)
-            if key not in seen and cpu > 0 and mem > 0:
-                seen.add(key)
+            if cpu > 0 and mem > 0:
                 result.append({"cpu": cpu, "mem": mem, "instance_type": type_name})
         _instance_cache[region_id] = result
         return result
-    except:
+    except Exception:
+        logger.exception("Failed to fetch Aliyun instance types for region %s", region_id)
         return []
 
 
@@ -117,7 +117,11 @@ def _find_instance_type(cpu: int, mem: int, instances: list):
     return None
 
 
-async def _query_one_price(client, csrf, region_id, instance_type, disk_size, bandwidth):
+def _find_all_instance_types(cpu: int, mem: int, instances: list):
+    return [inst["instance_type"] for inst in instances if inst["cpu"] == cpu and inst["mem"] == mem]
+
+
+async def _query_one_price(client, csrf, region_id, instance_type):
     headers = {**HEADERS}
     if csrf:
         headers["x-xsrf-token"] = csrf
@@ -133,59 +137,78 @@ async def _query_one_price(client, csrf, region_id, instance_type, disk_size, ba
                     {"code": "instance_type_family", "value": instance_type.rsplit(".", 1)[0]}]},
                 {"componentCode": "vm_os", "instanceProperty": [
                     {"code": "vm_os", "value": "aliyun_3_x64_20G_alibase_20260513.vhd"},
-                    {"code": "vm_os_kind", "value": "linux"}, {"code": "vm_os_bit", "value": "64"}]},
-                {"componentCode": "systemdisk", "instanceProperty": [
-                    {"code": "systemdisk_category", "value": ALIYUN_DISK_CATEGORY},
-                    {"code": "systemdisk_size", "value": disk_size}]},
-                {"componentCode": "vm_bandwidth", "instanceProperty": [
-                    {"code": "vm_is_flow_type", "value": "PayByTraffic" if bandwidth == 0 else "PayByBandwidth"},
-                    {"code": "vm_bandwidth", "value": bandwidth}]}]}]}
+                    {"code": "vm_os_kind", "value": "linux"}, {"code": "vm_os_bit", "value": "64"}]}]}]}
     try:
         resp = await client.post("https://buy-api.aliyun.com/price/getLightWeightPrice2.json",
             headers=headers, json=body, params={"tenant": "TenantCalculator"}, timeout=15)
         data = resp.json()
         if data.get("code") == "200" and data.get("data"):
             order = data["data"].get("order", {})
-            amount = order.get("originalAmount") or order.get("tradeAmount", 0)
-            return round(float(amount), 2)
-    except:
-        pass
+            trade_amount = order.get("tradeAmount")
+            original_amount = order.get("originalAmount")
+            amount = trade_amount if trade_amount is not None else original_amount
+            if amount is not None:
+                result = {"monthly_price": round(float(amount), 2)}
+                if original_amount is not None:
+                    result["original_monthly_price"] = round(float(original_amount), 2)
+                if trade_amount is not None:
+                    result["discount_monthly_price"] = round(float(trade_amount), 2)
+                return result
+    except Exception:
+        logger.exception("Failed to query Aliyun price: region=%s instance=%s", region_id, instance_type)
     return None
 
 
-async def query_all_prices(region_id: str, disk_size: int = 40, bandwidth: int = 0, concurrency: int = 10):
+async def query_all_prices(region_id: str, concurrency: int = 10):
     instances = await get_instance_types(region_id)
     if not instances:
         return []
+
+    groups = {}
+    for inst in instances:
+        key = (inst["cpu"], inst["mem"])
+        if key not in groups:
+            groups[key] = inst
+
     client = await _get_client()
     csrf = await _ensure_csrf()
     sem = asyncio.Semaphore(concurrency)
 
     async def fetch(inst):
         async with sem:
-            price = await _query_one_price(client, csrf, region_id, inst["instance_type"], disk_size, bandwidth)
-            if price is not None:
+            price_info = await _query_one_price(client, csrf, region_id, inst["instance_type"])
+            if price_info is not None:
                 return {"provider": "阿里云", "instance_type": inst["instance_type"],
-                        "cpu": inst["cpu"], "mem": inst["mem"], "monthly_price": price, "currency": "CNY"}
+                        "cpu": inst["cpu"], "mem": inst["mem"], "currency": "CNY",
+                        "region_id": region_id, **price_info}
             return None
 
-    tasks = [fetch(inst) for inst in instances]
+    tasks = [fetch(inst) for inst in groups.values()]
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
 
-async def query_price(region_id: str, cpu: int, mem: int, disk_size: int = 40, bandwidth: int = 0):
+async def query_price(region_id: str, cpu: int, mem: int):
     instances = _instance_cache.get(region_id, [])
     if not instances:
         await get_instance_types(region_id)
         instances = _instance_cache.get(region_id, [])
-    instance_type = _find_instance_type(cpu, mem, instances) if instances else None
-    if not instance_type:
+    matching_types = _find_all_instance_types(cpu, mem, instances) if instances else []
+    if not matching_types:
         return {"provider": "阿里云", "error": f"该地域无 {cpu}核{mem}G 的实例规格"}
 
     client = await _get_client()
     csrf = await _ensure_csrf()
-    price = await _query_one_price(client, csrf, region_id, instance_type, disk_size, bandwidth)
-    if price is not None:
-        return {"provider": "阿里云", "instance_type": instance_type, "monthly_price": price, "currency": "CNY"}
-    return {"provider": "阿里云", "error": f"查询 {instance_type} 价格失败"}
+
+    best = None
+    for instance_type in matching_types:
+        price_info = await _query_one_price(client, csrf, region_id, instance_type)
+        if price_info is not None:
+            price = price_info.get("monthly_price", float("inf"))
+            if best is None or price < best[1]:
+                best = (instance_type, price, price_info)
+
+    if best:
+        return {"provider": "阿里云", "instance_type": best[0], "cpu": cpu, "mem": mem,
+                "currency": "CNY", "region_id": region_id, **best[2]}
+    return {"provider": "阿里云", "error": f"查询 {cpu}核{mem}G 价格失败"}
