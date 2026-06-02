@@ -117,6 +117,7 @@
         .price .unit { font-size: 14px; font-weight: 400; color: #8899aa; margin-left: 4px; }
         .result-details { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: #8899aa; }
         .result-details span { background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 4px; }
+        .result-details span.complete-badge { color: #6ee7b7; background: rgba(110,231,183,0.12); }
         .error-msg { color: #ff6b6b; font-size: 14px; }
         .loading { text-align: center; padding: 40px; }
         .spinner {
@@ -126,6 +127,10 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-state { text-align: center; padding: 50px; color: #556677; }
+        .provider-availability { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+        .pa-label { font-size: 12px; color: #8899aa; }
+        .pa-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: rgba(255,80,80,0.15); color: #ff6b6b; }
+        .pa-tag.active { background: rgba(0,212,255,0.15); color: #00d4ff; }
         .provider-logos { display: flex; justify-content: center; gap: 20px; margin: 12px 0; }
         .provider-logo { padding: 6px 14px; border-radius: 8px; font-weight: 700; font-size: 12px; }
         .provider-logo.a { background: rgba(255,106,0,0.15); color: #ff6a00; }
@@ -280,50 +285,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>系统盘 (GB)</label>
-                    <div class="custom-select" v-click-outside="() => closeDropdown('disk')">
-                        <div class="select-trigger" :class="{open: openDrop === 'disk'}" @click="toggleDropdown('disk')">
-                            <span>{{ selectedDisk ? selectedDisk + ' GB' : '全部' }}</span>
-                            <span class="arrow">&#9662;</span>
-                        </div>
-                        <div class="dropdown-panel" v-if="openDrop === 'disk'">
-                            <div class="dropdown-search">
-                                <input v-model="searchDisk" placeholder="搜索..." ref="searchDiskRef" @click.stop>
-                            </div>
-                            <div class="dropdown-list">
-                                <div class="dropdown-item all-option" :class="{selected: !selectedDisk}"
-                                     @click="selectDisk(null)">全部</div>
-                                <div class="dropdown-item" v-for="d in filteredDisks" :key="d"
-                                     :class="{selected: selectedDisk === d}"
-                                     @click="selectDisk(d)">{{ d }} GB</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>带宽 (Mbps)</label>
-                    <div class="custom-select" v-click-outside="() => closeDropdown('bw')">
-                        <div class="select-trigger" :class="{open: openDrop === 'bw'}" @click="toggleDropdown('bw')">
-                            <span>{{ selectedBandwidth === null ? '全部' : (selectedBandwidth === 0 ? '按量付费' : selectedBandwidth + ' Mbps') }}</span>
-                            <span class="arrow">&#9662;</span>
-                        </div>
-                        <div class="dropdown-panel" v-if="openDrop === 'bw'">
-                            <div class="dropdown-search">
-                                <input v-model="searchBw" placeholder="搜索..." ref="searchBwRef" @click.stop>
-                            </div>
-                            <div class="dropdown-list">
-                                <div class="dropdown-item all-option" :class="{selected: selectedBandwidth === null}"
-                                     @click="selectBw(null)">全部</div>
-                                <div class="dropdown-item" :class="{selected: selectedBandwidth === 0}"
-                                     @click="selectBw(0)">按量付费</div>
-                                <div class="dropdown-item" v-for="b in filteredBws" :key="b"
-                                     :class="{selected: selectedBandwidth === b}"
-                                     @click="selectBw(b)">{{ b }} Mbps</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
             <button class="btn-compare" @click="doCompare" :disabled="loading || !selectedCountry">
                 {{ loading ? '正在比价中...' : '一键比价' }}
@@ -337,6 +298,15 @@
             <div class="loading">
                 <div class="spinner"></div>
                 <p>正在查询三大云厂商实时价格...</p>
+            </div>
+        </div>
+
+        <div class="card" v-if="searched && !loading && Object.keys(providers).length > 0">
+            <div class="provider-availability">
+                <span class="pa-label">该地区可用：</span>
+                <span class="pa-tag" :class="{active: providers['阿里云']}">阿里云 {{ providers['阿里云'] ? '✓' : '✗' }}</span>
+                <span class="pa-tag" :class="{active: providers['腾讯云']}">腾讯云 {{ providers['腾讯云'] ? '✓' : '✗' }}</span>
+                <span class="pa-tag" :class="{active: providers['华为云']}">华为云 {{ providers['华为云'] ? '✓' : '✗' }}</span>
             </div>
         </div>
 
@@ -363,11 +333,11 @@
                         </div>
                         <div class="result-details">
                             <span v-if="r.city">城市: {{ r.city }}</span>
+                            <span v-if="r.region_id">Region: {{ r.region_id }}</span>
                             <span>规格: {{ r.instance_type }}</span>
                             <span v-if="r.cpu">{{ r.cpu }}核{{ r.mem % 1 === 0 ? r.mem : r.mem }}G</span>
                             <span v-else-if="r.query_cpu">{{ r.query_cpu }}核{{ r.query_mem }}G</span>
-                            <span v-if="r.query_disk">系统盘: {{ r.query_disk }}GB</span>
-                            <span v-if="r.query_bw !== undefined">带宽: {{ r.query_bw === 0 ? '按量' : r.query_bw + 'Mbps' }}</span>
+                            <span class="complete-badge">主机规格价</span>
                         </div>
                     </div>
                 </div>
@@ -404,15 +374,12 @@ createApp({
         const selectedResource = ref('ecs');
         const selectedCpu = ref(null);
         const selectedMem = ref(null);
-        const selectedDisk = ref(null);
-        const selectedBandwidth = ref(null);
         const specs = ref([]);
         const allCpus = ref([]);
         const allMems = ref([]);
-        const diskOptions = ref([]);
-        const bandwidthOptions = ref([]);
         const specsLoading = ref(false);
         const results = ref([]);
+        const providers = ref({});
         const loading = ref(false);
         const searched = ref(false);
 
@@ -421,15 +388,11 @@ createApp({
         const searchCity = ref('');
         const searchCpu = ref('');
         const searchMem = ref('');
-        const searchDisk = ref('');
-        const searchBw = ref('');
 
         const searchCountryRef = ref(null);
         const searchCityRef = ref(null);
         const searchCpuRef = ref(null);
         const searchMemRef = ref(null);
-        const searchDiskRef = ref(null);
-        const searchBwRef = ref(null);
 
         const availableCities = computed(() => {
             if (!selectedCountry.value) return [];
@@ -470,22 +433,12 @@ createApp({
             return uniqueMems.value.filter(m => String(m).includes(searchMem.value));
         });
 
-        const filteredDisks = computed(() => {
-            if (!searchDisk.value) return diskOptions.value;
-            return diskOptions.value.filter(d => String(d).includes(searchDisk.value));
-        });
-
-        const filteredBws = computed(() => {
-            if (!searchBw.value) return bandwidthOptions.value;
-            return bandwidthOptions.value.filter(b => String(b).includes(searchBw.value));
-        });
-
         const toggleDropdown = (name) => {
             if (openDrop.value === name) { openDrop.value = null; }
             else {
                 openDrop.value = name;
                 nextTick(() => {
-                    const refMap = { country: searchCountryRef, city: searchCityRef, cpu: searchCpuRef, mem: searchMemRef, disk: searchDiskRef, bw: searchBwRef };
+                    const refMap = { country: searchCountryRef, city: searchCityRef, cpu: searchCpuRef, mem: searchMemRef };
                     refMap[name]?.value?.focus();
                 });
             }
@@ -516,9 +469,6 @@ createApp({
 
         const selectCpu = (v) => { selectedCpu.value = v; openDrop.value = null; searchCpu.value = ''; };
         const selectMem = (v) => { selectedMem.value = v; openDrop.value = null; searchMem.value = ''; };
-        const selectDisk = (v) => { selectedDisk.value = v; openDrop.value = null; searchDisk.value = ''; };
-        const selectBw = (v) => { selectedBandwidth.value = v; openDrop.value = null; searchBw.value = ''; };
-
         const providerClass = (name) => {
             if (name.includes('阿里')) return 'aliyun';
             if (name.includes('腾讯')) return 'tencent';
@@ -540,8 +490,6 @@ createApp({
                 specs.value = sData.data?.specs || [];
                 allCpus.value = sData.data?.cpus || [];
                 allMems.value = sData.data?.mems || [];
-                diskOptions.value = sData.data?.disk_options || [40, 50, 100];
-                bandwidthOptions.value = sData.data?.bandwidth_options || [1, 5, 10, 20];
             } catch (e) { console.error('Failed to load specs:', e); }
             finally { specsLoading.value = false; }
         };
@@ -565,12 +513,11 @@ createApp({
                     city: selectedCity.value || '全部',
                     cpu: selectedCpu.value || 0,
                     mem: selectedMem.value || 0,
-                    disk: selectedDisk.value || 0,
-                    bandwidth: selectedBandwidth.value === null ? -1 : selectedBandwidth.value,
                 });
                 const resp = await fetch(`${API_BASE}/api/compare?${params}`, { method: 'POST' });
                 const data = await resp.json();
                 results.value = data.data || [];
+                providers.value = data.providers || {};
             } catch (e) {
                 console.error('Compare failed:', e);
                 results.value = [{ provider: '错误', error: e.message }];
@@ -581,13 +528,13 @@ createApp({
 
         return {
             countries, selectedCountry, selectedCity, selectedResource, selectedCpu, selectedMem,
-            selectedDisk, selectedBandwidth, specs, allCpus, allMems, diskOptions, bandwidthOptions, specsLoading,
-            results, loading, searched, availableCities,
-            openDrop, searchCountry, searchCity, searchCpu, searchMem, searchDisk, searchBw,
-            searchCountryRef, searchCityRef, searchCpuRef, searchMemRef, searchDiskRef, searchBwRef,
-            filteredCountries, filteredCities, filteredCpus, filteredMems, filteredDisks, filteredBws,
+            specs, allCpus, allMems, specsLoading,
+            results, providers, loading, searched, availableCities,
+            openDrop, searchCountry, searchCity, searchCpu, searchMem,
+            searchCountryRef, searchCityRef, searchCpuRef, searchMemRef,
+            filteredCountries, filteredCities, filteredCpus, filteredMems,
             toggleDropdown, closeDropdown, selectCountry, selectCity, selectResource,
-            selectCpu, selectMem, selectDisk, selectBw, providerClass, doCompare, loadSpecs,
+            selectCpu, selectMem, providerClass, doCompare, loadSpecs,
         };
     },
 }).mount('#app');

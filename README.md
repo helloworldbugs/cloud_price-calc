@@ -7,7 +7,7 @@
 - **实时比价** — 直接调用三大云厂商价格计算器 API，返回真实实时价格
 - **地域联动** — 国家 → 城市两级联动，支持中国、新加坡、日本、美国、德国等区域
 - **资源类型** — 云服务器（已支持）、数据库（即将上线）
-- **规格筛选** — CPU、内存、系统盘、带宽均支持"全部"选项和搜索框
+- **规格筛选** — CPU、内存均支持"全部"选项和搜索框
 - **全城最低** — 选择"全部"城市时，自动遍历所有城市返回每家云的最低价
 - **全网最省** — 结果按包月价格排序，最便宜的打上醒目标签
 
@@ -53,8 +53,8 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/countries` | 获取国家与城市列表 |
-| GET | `/api/specs` | 获取可选规格（CPU、内存、磁盘、带宽） |
-| POST | `/api/compare?country=&city=&cpu=&mem=&disk=&bandwidth=` | 查询三家云价格，按价格升序返回 |
+| GET | `/api/specs` | 获取可选规格（CPU、内存） |
+| POST | `/api/compare?country=&city=&cpu=&mem=` | 查询三家云主机规格价格，按价格升序返回 |
 
 `city` 传 `全部` 时遍历该国家所有城市，返回每家最低价。`cpu`/`mem` 传 `0` 时使用默认值 2核4G。
 
@@ -70,9 +70,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## 截图
 
-<p align="center">
-  <img src="screenshot-resource-type.png" width="800" alt="比价结果">
-</p>
+![alt text](README/image.png)
 
 ## License
 
