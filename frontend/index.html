@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多云实时比价计算器</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #0c1426 0%, #1a2744 50%, #0d1b2e 100%);
+            min-height: 100vh; color: #e0e6ed;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h1 {
+            font-size: 28px; font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #7b68ee, #00d4ff);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-size: 200% 200%; animation: shimmer 3s ease-in-out infinite;
+        }
+        @keyframes shimmer { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
+        .header p { color: #8899aa; margin-top: 4px; font-size: 13px; }
+        .main-layout { display: flex; gap: 20px; align-items: flex-start; }
+        .left-panel { width: 420px; min-width: 380px; flex-shrink: 0; }
+        .right-panel { flex: 1; min-width: 0; }
+        .card {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; padding: 18px; margin-bottom: 14px;
+            backdrop-filter: blur(10px); position: relative;
+        }
+        .card.form-card { z-index: 10; }
+        .card.region-card { z-index: 12; }
+        .card.spec-card { z-index: 9; }
+        .card h2 { font-size: 14px; margin-bottom: 12px; color: #00d4ff; display: flex; align-items: center; gap: 6px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; position: relative; }
+        .form-group label { font-size: 12px; color: #8899aa; font-weight: 500; }
+
+        .custom-select { position: relative; }
+        .select-trigger {
+            background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 8px 10px; color: #e0e6ed; font-size: 13px;
+            cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+            transition: border-color 0.2s; user-select: none;
+        }
+        .select-trigger:hover, .select-trigger.open { border-color: #00d4ff; }
+        .select-trigger .arrow { font-size: 10px; color: #8899aa; transition: transform 0.2s; }
+        .select-trigger.open .arrow { transform: rotate(180deg); }
+        .select-trigger .placeholder { color: #556677; }
+
+        .dropdown-panel {
+            position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+            background: #1e2d4a; border: 1px solid rgba(0,212,255,0.3);
+            border-radius: 10px; z-index: 100; overflow: hidden;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        }
+        .dropdown-search {
+            padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .dropdown-search input {
+            width: 100%; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px; padding: 8px 10px; color: #e0e6ed; font-size: 13px; outline: none;
+        }
+        .dropdown-search input:focus { border-color: #00d4ff; }
+        .dropdown-search input::placeholder { color: #556677; }
+        .dropdown-list { max-height: 220px; overflow-y: auto; }
+        .dropdown-list::-webkit-scrollbar { width: 6px; }
+        .dropdown-list::-webkit-scrollbar-track { background: transparent; }
+        .dropdown-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+        .dropdown-item {
+            padding: 10px 14px; cursor: pointer; font-size: 14px; color: #c0ccd8;
+            transition: background 0.15s, color 0.15s;
+        }
+        .dropdown-item:hover { background: rgba(0,212,255,0.1); color: #e0e6ed; }
+        .dropdown-item.selected { background: rgba(0,212,255,0.2); color: #00d4ff; font-weight: 600; }
+        .dropdown-item.all-option { color: #7b68ee; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .dropdown-item.all-option.selected { color: #00d4ff; }
+        .dropdown-item.disabled { opacity: 0.4; cursor: not-allowed; }
+        .dropdown-empty { padding: 16px; text-align: center; color: #556677; font-size: 13px; }
+
+        .btn-compare {
+            width: 100%; padding: 10px; border: none; border-radius: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7b68ee);
+            color: white; font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s; margin-top: 8px;
+        }
+        .btn-compare:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,212,255,0.3); }
+        .btn-compare:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .results { display: flex; flex-direction: column; gap: 16px; }
+        .result-card {
+            border-radius: 10px; padding: 14px 16px; position: relative; overflow: hidden;
+            transition: transform 0.2s;
+        }
+        .result-card:hover { transform: translateY(-2px); }
+        .result-card.cheapest {
+            background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(123,104,238,0.15));
+            border: 2px solid #00d4ff;
+        }
+        .result-card.normal { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+        .result-card.error { background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.3); }
+        .cheapest-tag {
+            position: absolute; top: 12px; right: -30px;
+            background: linear-gradient(90deg, #ff6b35, #ff4500);
+            color: white; font-size: 12px; font-weight: 700;
+            padding: 4px 40px; transform: rotate(45deg);
+            box-shadow: 0 2px 10px rgba(255,69,0,0.5);
+        }
+        .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .provider-name { font-size: 15px; font-weight: 700; }
+        .provider-name.aliyun { color: #ff6a00; }
+        .provider-name.tencent { color: #00b4ed; }
+        .provider-name.huawei { color: #cf0a2c; }
+        .price { font-size: 22px; font-weight: 800; }
+        .price .unit { font-size: 14px; font-weight: 400; color: #8899aa; margin-left: 4px; }
+        .result-details { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: #8899aa; }
+        .result-details span { background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 4px; }
+        .error-msg { color: #ff6b6b; font-size: 14px; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner {
+            width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state { text-align: center; padding: 50px; color: #556677; }
+        .provider-logos { display: flex; justify-content: center; gap: 20px; margin: 12px 0; }
+        .provider-logo { padding: 6px 14px; border-radius: 8px; font-weight: 700; font-size: 12px; }
+        .provider-logo.a { background: rgba(255,106,0,0.15); color: #ff6a00; }
+        .provider-logo.t { background: rgba(0,180,237,0.15); color: #00b4ed; }
+        .provider-logo.h { background: rgba(207,10,44,0.15); color: #cf0a2c; }
+
+        .resource-type-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+        .resource-type-btn {
+            padding: 8px 18px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
+            border: 2px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+            color: #8899aa; transition: all 0.2s; user-select: none;
+        }
+        .resource-type-btn:hover { border-color: rgba(0,212,255,0.4); color: #c0ccd8; }
+        .resource-type-btn.active {
+            border-color: #00d4ff; color: #00d4ff;
+            background: linear-gradient(135deg, rgba(0,212,255,0.12), rgba(123,104,238,0.12));
+            box-shadow: 0 0 20px rgba(0,212,255,0.15);
+        }
+        .resource-type-btn .type-icon { font-size: 20px; margin-right: 8px; }
+        .resource-type-btn.coming-soon { opacity: 0.4; cursor: not-allowed; }
+        .resource-type-btn.coming-soon:hover { border-color: rgba(255,255,255,0.12); color: #8899aa; }
+
+        .spec-placeholder {
+            text-align: center; padding: 40px 20px; color: #556677;
+        }
+        .spec-placeholder .icon { font-size: 40px; margin-bottom: 12px; }
+        .spec-placeholder p { font-size: 14px; }
+
+        .slide-enter-active { animation: slideDown 0.3s ease; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="container">
+        <div class="header">
+            <h1>多云实时比价计算器</h1>
+            <p>阿里云 / 腾讯云 / 华为云 — 实时价格对比，助您高效采购</p>
+            <div class="provider-logos">
+                <div class="provider-logo a">阿里云</div>
+                <div class="provider-logo t">腾讯云</div>
+                <div class="provider-logo h">华为云</div>
+            </div>
+        </div>
+
+        <div class="main-layout">
+        <div class="left-panel">
+
+        <div class="card form-card region-card">
+            <h2>选择地域</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>国家 / 地区</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('country')">
+                        <div class="select-trigger" :class="{open: openDrop === 'country'}" @click="toggleDropdown('country')">
+                            <span>{{ selectedCountry || '请选择国家' }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'country'">
+                            <div class="dropdown-search">
+                                <input v-model="searchCountry" placeholder="搜索国家..." ref="searchCountryRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item" v-for="c in filteredCountries" :key="c.country"
+                                     :class="{selected: selectedCountry === c.country}"
+                                     @click="selectCountry(c.country)">{{ c.country }}</div>
+                                <div class="dropdown-empty" v-if="filteredCountries.length === 0">无匹配项</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>城市</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('city')">
+                        <div class="select-trigger" :class="{open: openDrop === 'city'}" @click="toggleDropdown('city')">
+                            <span>{{ selectedCity || '全部' }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'city'">
+                            <div class="dropdown-search">
+                                <input v-model="searchCity" placeholder="搜索城市..." ref="searchCityRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item all-option" :class="{selected: !selectedCity}"
+                                     @click="selectCity('')">全部</div>
+                                <div class="dropdown-item" v-for="c in filteredCities" :key="c.name"
+                                     :class="{selected: selectedCity === c.name}"
+                                     @click="selectCity(c.name)">{{ c.name }}</div>
+                                <div class="dropdown-empty" v-if="filteredCities.length === 0 && searchCity">无匹配项</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card form-card">
+            <h2>选择资源类型</h2>
+            <div class="resource-type-bar">
+                <div class="resource-type-btn" :class="{active: selectedResource === 'ecs'}"
+                     @click="selectResource('ecs')">
+                    <span class="type-icon">&#9998;</span>云服务器
+                </div>
+                <div class="resource-type-btn coming-soon" title="即将上线">
+                    <span class="type-icon">&#9881;</span>数据库
+                </div>
+            </div>
+        </div>
+
+        <div class="card spec-card slide-enter-active" v-if="selectedResource === 'ecs'">
+            <h2>云服务器规格 <span v-if="specsLoading" style="font-size:12px;color:#8899aa;font-weight:400;">加载中...</span></h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>CPU (核)</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('cpu')">
+                        <div class="select-trigger" :class="{open: openDrop === 'cpu'}" @click="toggleDropdown('cpu')">
+                            <span>{{ selectedCpu ? selectedCpu + ' 核' : '全部' }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'cpu'">
+                            <div class="dropdown-search">
+                                <input v-model="searchCpu" placeholder="搜索..." ref="searchCpuRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item all-option" :class="{selected: !selectedCpu}"
+                                     @click="selectCpu(null)">全部</div>
+                                <div class="dropdown-item" v-for="c in filteredCpus" :key="c"
+                                     :class="{selected: selectedCpu === c}"
+                                     @click="selectCpu(c)">{{ c }} 核</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>内存 (GB)</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('mem')">
+                        <div class="select-trigger" :class="{open: openDrop === 'mem'}" @click="toggleDropdown('mem')">
+                            <span>{{ selectedMem ? selectedMem + ' GB' : '全部' }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'mem'">
+                            <div class="dropdown-search">
+                                <input v-model="searchMem" placeholder="搜索..." ref="searchMemRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item all-option" :class="{selected: !selectedMem}"
+                                     @click="selectMem(null)">全部</div>
+                                <div class="dropdown-item" v-for="m in filteredMems" :key="m"
+                                     :class="{selected: selectedMem === m}"
+                                     @click="selectMem(m)">{{ m }} GB</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>系统盘 (GB)</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('disk')">
+                        <div class="select-trigger" :class="{open: openDrop === 'disk'}" @click="toggleDropdown('disk')">
+                            <span>{{ selectedDisk ? selectedDisk + ' GB' : '全部' }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'disk'">
+                            <div class="dropdown-search">
+                                <input v-model="searchDisk" placeholder="搜索..." ref="searchDiskRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item all-option" :class="{selected: !selectedDisk}"
+                                     @click="selectDisk(null)">全部</div>
+                                <div class="dropdown-item" v-for="d in filteredDisks" :key="d"
+                                     :class="{selected: selectedDisk === d}"
+                                     @click="selectDisk(d)">{{ d }} GB</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>带宽 (Mbps)</label>
+                    <div class="custom-select" v-click-outside="() => closeDropdown('bw')">
+                        <div class="select-trigger" :class="{open: openDrop === 'bw'}" @click="toggleDropdown('bw')">
+                            <span>{{ selectedBandwidth === null ? '全部' : (selectedBandwidth === 0 ? '按量付费' : selectedBandwidth + ' Mbps') }}</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="dropdown-panel" v-if="openDrop === 'bw'">
+                            <div class="dropdown-search">
+                                <input v-model="searchBw" placeholder="搜索..." ref="searchBwRef" @click.stop>
+                            </div>
+                            <div class="dropdown-list">
+                                <div class="dropdown-item all-option" :class="{selected: selectedBandwidth === null}"
+                                     @click="selectBw(null)">全部</div>
+                                <div class="dropdown-item" :class="{selected: selectedBandwidth === 0}"
+                                     @click="selectBw(0)">按量付费</div>
+                                <div class="dropdown-item" v-for="b in filteredBws" :key="b"
+                                     :class="{selected: selectedBandwidth === b}"
+                                     @click="selectBw(b)">{{ b }} Mbps</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button class="btn-compare" @click="doCompare" :disabled="loading || !selectedCountry">
+                {{ loading ? '正在比价中...' : '一键比价' }}
+            </button>
+        </div>
+
+        </div>
+        <div class="right-panel">
+
+        <div class="card" v-if="loading">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>正在查询三大云厂商实时价格...</p>
+            </div>
+        </div>
+
+        <div class="card" v-if="results.length > 0 && !loading">
+            <h2>比价结果（包月价格）</h2>
+            <div class="results">
+                <div v-for="(r, idx) in results" :key="idx"
+                     class="result-card"
+                     :class="{ cheapest: r.is_cheapest, error: r.error, normal: !r.error && !r.is_cheapest }">
+                    <div class="cheapest-tag" v-if="r.is_cheapest">全网最省</div>
+                    <div v-if="r.error">
+                        <div class="result-header">
+                            <span class="provider-name" :class="providerClass(r.provider)">{{ r.provider }}</span>
+                        </div>
+                        <div class="error-msg">查询失败: {{ r.error }}</div>
+                    </div>
+                    <div v-else>
+                        <div class="result-header">
+                            <span class="provider-name" :class="providerClass(r.provider)">{{ r.provider }}</span>
+                            <span class="price">
+                                ¥{{ r.monthly_price.toFixed(2) }}
+                                <span class="unit">/月</span>
+                            </span>
+                        </div>
+                        <div class="result-details">
+                            <span v-if="r.city">城市: {{ r.city }}</span>
+                            <span>规格: {{ r.instance_type }}</span>
+                            <span v-if="r.cpu">{{ r.cpu }}核{{ r.mem % 1 === 0 ? r.mem : r.mem }}G</span>
+                            <span v-else-if="r.query_cpu">{{ r.query_cpu }}核{{ r.query_mem }}G</span>
+                            <span v-if="r.query_disk">系统盘: {{ r.query_disk }}GB</span>
+                            <span v-if="r.query_bw !== undefined">带宽: {{ r.query_bw === 0 ? '按量' : r.query_bw + 'Mbps' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" v-if="!loading && searched && results.length === 0">
+            <div class="empty-state"><p>暂无查询结果，请尝试其他配置</p></div>
+        </div>
+
+        </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+const clickOutside = {
+    mounted(el, binding) {
+        el._clickOutside = (e) => { if (!el.contains(e.target)) binding.value(); };
+        document.addEventListener('click', el._clickOutside);
+    },
+    unmounted(el) { document.removeEventListener('click', el._clickOutside); },
+};
+
+createApp({
+    directives: { clickOutside },
+    setup() {
+        const countries = ref([]);
+        const selectedCountry = ref('');
+        const selectedCity = ref('');
+        const selectedResource = ref('ecs');
+        const selectedCpu = ref(null);
+        const selectedMem = ref(null);
+        const selectedDisk = ref(null);
+        const selectedBandwidth = ref(null);
+        const specs = ref([]);
+        const allCpus = ref([]);
+        const allMems = ref([]);
+        const diskOptions = ref([]);
+        const bandwidthOptions = ref([]);
+        const specsLoading = ref(false);
+        const results = ref([]);
+        const loading = ref(false);
+        const searched = ref(false);
+
+        const openDrop = ref(null);
+        const searchCountry = ref('');
+        const searchCity = ref('');
+        const searchCpu = ref('');
+        const searchMem = ref('');
+        const searchDisk = ref('');
+        const searchBw = ref('');
+
+        const searchCountryRef = ref(null);
+        const searchCityRef = ref(null);
+        const searchCpuRef = ref(null);
+        const searchMemRef = ref(null);
+        const searchDiskRef = ref(null);
+        const searchBwRef = ref(null);
+
+        const availableCities = computed(() => {
+            if (!selectedCountry.value) return [];
+            const c = countries.value.find(x => x.country === selectedCountry.value);
+            return c ? c.cities : [];
+        });
+
+        const uniqueCpus = computed(() => {
+            const s = specs.value.filter(s => { if (selectedMem.value) return s.mem === selectedMem.value; return true; });
+            return [...new Set(s.map(x => x.cpu))].sort((a, b) => a - b);
+        });
+
+        const uniqueMems = computed(() => {
+            const s = specs.value.filter(s => { if (selectedCpu.value) return s.cpu === selectedCpu.value; return true; });
+            return [...new Set(s.map(x => x.mem))].sort((a, b) => a - b);
+        });
+
+        const filteredCountries = computed(() => {
+            if (!searchCountry.value) return countries.value;
+            const q = searchCountry.value.toLowerCase();
+            return countries.value.filter(c => c.country.toLowerCase().includes(q));
+        });
+
+        const filteredCities = computed(() => {
+            const list = availableCities.value;
+            if (!searchCity.value) return list;
+            const q = searchCity.value.toLowerCase();
+            return list.filter(c => c.name.toLowerCase().includes(q));
+        });
+
+        const filteredCpus = computed(() => {
+            if (!searchCpu.value) return uniqueCpus.value;
+            return uniqueCpus.value.filter(c => String(c).includes(searchCpu.value));
+        });
+
+        const filteredMems = computed(() => {
+            if (!searchMem.value) return uniqueMems.value;
+            return uniqueMems.value.filter(m => String(m).includes(searchMem.value));
+        });
+
+        const filteredDisks = computed(() => {
+            if (!searchDisk.value) return diskOptions.value;
+            return diskOptions.value.filter(d => String(d).includes(searchDisk.value));
+        });
+
+        const filteredBws = computed(() => {
+            if (!searchBw.value) return bandwidthOptions.value;
+            return bandwidthOptions.value.filter(b => String(b).includes(searchBw.value));
+        });
+
+        const toggleDropdown = (name) => {
+            if (openDrop.value === name) { openDrop.value = null; }
+            else {
+                openDrop.value = name;
+                nextTick(() => {
+                    const refMap = { country: searchCountryRef, city: searchCityRef, cpu: searchCpuRef, mem: searchMemRef, disk: searchDiskRef, bw: searchBwRef };
+                    refMap[name]?.value?.focus();
+                });
+            }
+        };
+
+        const closeDropdown = (name) => { if (openDrop.value === name) openDrop.value = null; };
+
+        const selectCountry = (v) => {
+            selectedCountry.value = v; selectedCity.value = '';
+            openDrop.value = null; searchCountry.value = '';
+            results.value = []; searched.value = false;
+            selectedCpu.value = null; selectedMem.value = null;
+            loadSpecs();
+        };
+
+        const selectCity = (v) => {
+            selectedCity.value = v; openDrop.value = null; searchCity.value = '';
+            results.value = []; searched.value = false;
+            selectedCpu.value = null; selectedMem.value = null;
+            loadSpecs();
+        };
+
+        const selectResource = (v) => {
+            if (v === 'db') return;
+            selectedResource.value = v;
+            results.value = []; searched.value = false;
+        };
+
+        const selectCpu = (v) => { selectedCpu.value = v; openDrop.value = null; searchCpu.value = ''; };
+        const selectMem = (v) => { selectedMem.value = v; openDrop.value = null; searchMem.value = ''; };
+        const selectDisk = (v) => { selectedDisk.value = v; openDrop.value = null; searchDisk.value = ''; };
+        const selectBw = (v) => { selectedBandwidth.value = v; openDrop.value = null; searchBw.value = ''; };
+
+        const providerClass = (name) => {
+            if (name.includes('阿里')) return 'aliyun';
+            if (name.includes('腾讯')) return 'tencent';
+            if (name.includes('华为')) return 'huawei';
+            return '';
+        };
+
+        const API_BASE = window.location.origin;
+
+        const loadSpecs = async () => {
+            specsLoading.value = true;
+            try {
+                const params = new URLSearchParams({
+                    country: selectedCountry.value || '中国',
+                    city: selectedCity.value || '',
+                });
+                const sRes = await fetch(`${API_BASE}/api/specs?${params}`);
+                const sData = await sRes.json();
+                specs.value = sData.data?.specs || [];
+                allCpus.value = sData.data?.cpus || [];
+                allMems.value = sData.data?.mems || [];
+                diskOptions.value = sData.data?.disk_options || [40, 50, 100];
+                bandwidthOptions.value = sData.data?.bandwidth_options || [1, 5, 10, 20];
+            } catch (e) { console.error('Failed to load specs:', e); }
+            finally { specsLoading.value = false; }
+        };
+
+        const loadData = async () => {
+            try {
+                const cRes = await fetch(`${API_BASE}/api/countries`);
+                const cData = await cRes.json();
+                countries.value = cData.data || [];
+                if (countries.value.length > 0) selectedCountry.value = countries.value[0].country;
+                await loadSpecs();
+            } catch (e) { console.error('Failed to load data:', e); }
+        };
+
+        const doCompare = async () => {
+            if (!selectedCountry.value) return;
+            loading.value = true; searched.value = true; results.value = [];
+            try {
+                const params = new URLSearchParams({
+                    country: selectedCountry.value,
+                    city: selectedCity.value || '全部',
+                    cpu: selectedCpu.value || 0,
+                    mem: selectedMem.value || 0,
+                    disk: selectedDisk.value || 0,
+                    bandwidth: selectedBandwidth.value === null ? -1 : selectedBandwidth.value,
+                });
+                const resp = await fetch(`${API_BASE}/api/compare?${params}`, { method: 'POST' });
+                const data = await resp.json();
+                results.value = data.data || [];
+            } catch (e) {
+                console.error('Compare failed:', e);
+                results.value = [{ provider: '错误', error: e.message }];
+            } finally { loading.value = false; }
+        };
+
+        onMounted(loadData);
+
+        return {
+            countries, selectedCountry, selectedCity, selectedResource, selectedCpu, selectedMem,
+            selectedDisk, selectedBandwidth, specs, allCpus, allMems, diskOptions, bandwidthOptions, specsLoading,
+            results, loading, searched, availableCities,
+            openDrop, searchCountry, searchCity, searchCpu, searchMem, searchDisk, searchBw,
+            searchCountryRef, searchCityRef, searchCpuRef, searchMemRef, searchDiskRef, searchBwRef,
+            filteredCountries, filteredCities, filteredCpus, filteredMems, filteredDisks, filteredBws,
+            toggleDropdown, closeDropdown, selectCountry, selectCity, selectResource,
+            selectCpu, selectMem, selectDisk, selectBw, providerClass, doCompare, loadSpecs,
+        };
+    },
+}).mount('#app');
+</script>
+</body>
+</html>
