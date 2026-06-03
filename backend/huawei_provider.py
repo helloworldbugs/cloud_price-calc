@@ -14,6 +14,50 @@ HEADERS = {
 _client = None
 _region_cache = {}
 
+# 来自华为云计算器页面 dataConfig 中的 vmType 规则映射
+# 只有匹配这些规则的实例才会在计算器页面上显示
+_VMTYPE_PATTERNS = [
+    r"^cc?(3|6|7)(ne)?",
+    r"^c\d",
+    r"^ac\d",
+    r"^as\d",
+    r"^(sn?\d|c\d|t2)",
+    r"^m\d(ne)?",
+    r"^am\d",
+    r"^p[ig]\dv?",
+    r"^(pi?|g)\dv?",
+    r"^h(c)?\d",
+    r"^i(r)?\d",
+    r"^air\d",
+    r"^fp1c?",
+    r"^d\d",
+    r"^t(?!7)\d",
+    r"^pc\d",
+    r"et?\d",
+    r"kc\d",
+    r"kx\d",
+    r"kg\d",
+    r"km\d",
+    r"ks\d",
+    r"^ai(?!7)\d",
+    r"^ai7",
+    r"^x1e\.",
+    r"^x2e\.",
+    r"^x1\.",
+    r"^x0\.",
+    r"^kai\d",
+    r"ki\d",
+]
+
+
+def _has_valid_vmtype(spec_code: str) -> bool:
+    """检查实例规格是否匹配华为云计算器的 vmType 规则"""
+    prefix = spec_code.split(".")[0] if "." in spec_code else spec_code
+    for pattern in _VMTYPE_PATTERNS:
+        if re.search(pattern, prefix):
+            return True
+    return False
+
 
 def _parse_cpu_mem(cpu_str: str, mem_str: str):
     def parse_val(s):
@@ -58,10 +102,23 @@ async def _load_products(region_id: str):
             cpu, mem = _parse_cpu_mem(cpu_str, mem_str)
             plan_list = p.get("planList", [])
             monthly = [pl for pl in plan_list if pl.get("billingMode") == "MONTHLY"]
-            price = monthly[0].get("amount", 0) if monthly else 0
-            pid = monthly[0].get("productId", "") if monthly else ""
-            if cpu > 0 and mem > 0 and price > 0:
-                region_specs.append({"cpu": cpu, "mem": mem, "code": code, "price": float(price), "productId": pid})
+            ondemand = [pl for pl in plan_list if pl.get("billingMode") == "ONDEMAND"]
+            is_ondemand = False
+            hourly_price = 0
+            if monthly:
+                price = monthly[0].get("amount", 0)
+                pid = monthly[0].get("productId", "")
+            elif ondemand:
+                hourly = ondemand[0].get("amount", 0)
+                hourly_price = round(float(hourly), 4) if hourly else 0
+                price = round(float(hourly) * 720, 2) if hourly else 0
+                pid = ondemand[0].get("productId", "")
+                is_ondemand = True
+            else:
+                price = 0
+                pid = ""
+            if cpu > 0 and mem > 0 and price > 0 and _has_valid_vmtype(code):
+                region_specs.append({"cpu": cpu, "mem": mem, "code": code, "price": float(price), "productId": pid, "is_ondemand": is_ondemand, "hourly_price": hourly_price})
         _region_cache[region_id] = region_specs
     except Exception:
         logger.exception("Failed to fetch Huawei products for region %s", region_id)
@@ -88,8 +145,15 @@ async def query_all_prices(region_id: str):
     await _load_products(region_id)
     specs = _region_cache.get(region_id, [])
     groups = _group_cheapest(specs)
-    return [{"provider": "华为云", "instance_type": s["code"], "cpu": s["cpu"], "mem": s["mem"],
-             "monthly_price": round(s["price"], 2), "currency": "CNY"} for s in groups.values()]
+    results = []
+    for s in groups.values():
+        item = {"provider": "华为云", "instance_type": s["code"], "cpu": s["cpu"], "mem": s["mem"],
+                "monthly_price": round(s["price"], 2), "currency": "CNY"}
+        if s.get("is_ondemand"):
+            item["is_ondemand"] = True
+            item["hourly_price"] = s["hourly_price"]
+        results.append(item)
+    return results
 
 
 async def query_price(region_id: str, cpu: int, mem: int):
@@ -99,5 +163,9 @@ async def query_price(region_id: str, cpu: int, mem: int):
     if not matching:
         return {"provider": "华为云", "error": f"该地域无 {cpu}核{mem}G 的实例规格"}
     cheapest = min(matching, key=lambda x: x["price"])
-    return {"provider": "华为云", "instance_type": cheapest["code"],
-            "monthly_price": round(cheapest["price"], 2), "currency": "CNY"}
+    result = {"provider": "华为云", "instance_type": cheapest["code"],
+              "monthly_price": round(cheapest["price"], 2), "currency": "CNY"}
+    if cheapest.get("is_ondemand"):
+        result["is_ondemand"] = True
+        result["hourly_price"] = cheapest["hourly_price"]
+    return result

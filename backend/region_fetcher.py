@@ -82,7 +82,7 @@ HUAWEI_REGION_NAMES = {
     "cn-southwest-2": ("中国", "贵阳"),
     "ap-southeast-1": ("新加坡", "新加坡"),
     "ap-southeast-2": ("泰国", "曼谷"),
-    "ap-southeast-3": ("马来西亚", "吉隆坡"),
+    "ap-southeast-3": ("新加坡", "新加坡"),
     "ap-southeast-4": ("印度尼西亚", "雅加达"),
     "ap-southeast-5": ("印度", "孟买"),
     "sa-brazil-1": ("巴西", "圣保罗"),
