@@ -51,12 +51,7 @@ def _parse_instance_type(name: str):
     if m2:
         n = int(m2.group(1))
         mem_m = int(m2.group(2))
-        if family.startswith("e-"):
-            mem_ratio = mem_m / n
-        elif "lc" in family:
-            mem_ratio = mem_m / 2
-        else:
-            mem_ratio = mem_m
+        mem_ratio = mem_m / n
     else:
         mem_ratio = 4
         if family.startswith("c"):
