@@ -45,19 +45,31 @@ def _parse_instance_type(name: str):
             cpu = int(m.group(1)) * 4
     if cpu == 0:
         return 0, 0
-    mem_ratio = 4
-    if family.startswith("c") or "c1m2" in family:
-        mem_ratio = 2
-    elif family.startswith("r") or "c1m8" in family:
-        mem_ratio = 8
-    elif "c1m4" in family:
-        mem_ratio = 4
-    elif "c1m1" in family:
-        mem_ratio = 1
-    m2 = re.search(r"c\d+m(\d+)", family)
+
+    m2 = re.search(r"c(\d+)m(\d+)", family)
+
     if m2:
-        mem_ratio = int(m2.group(1))
-    return cpu, cpu * mem_ratio
+        n = int(m2.group(1))
+        mem_m = int(m2.group(2))
+        if family.startswith("e-"):
+            mem_ratio = mem_m / n
+        elif "lc" in family:
+            mem_ratio = mem_m / 2
+        else:
+            mem_ratio = mem_m
+    else:
+        mem_ratio = 4
+        if family.startswith("c"):
+            mem_ratio = 2
+        elif family.startswith("r"):
+            mem_ratio = 8
+        elif family.startswith("g"):
+            mem_ratio = 4
+
+    mem = cpu * mem_ratio
+    if mem < 1:
+        mem = round(mem, 2)
+    return cpu, mem
 
 
 async def _get_client():
@@ -165,10 +177,21 @@ async def query_all_prices(region_id: str, concurrency: int = 10):
         return []
 
     groups = {}
+    multi_groups = {}
     for inst in instances:
         key = (inst["cpu"], inst["mem"])
         if key not in groups:
-            groups[key] = inst
+            groups[key] = [inst]
+        else:
+            groups[key].append(inst)
+            multi_groups[key] = groups[key]
+
+    to_query = []
+    for key, insts in groups.items():
+        to_query.append(insts[0])
+        if len(insts) > 1:
+            for inst in insts[1:]:
+                to_query.append(inst)
 
     client = await _get_client()
     csrf = await _ensure_csrf()
@@ -183,9 +206,17 @@ async def query_all_prices(region_id: str, concurrency: int = 10):
                         "region_id": region_id, **price_info}
             return None
 
-    tasks = [fetch(inst) for inst in groups.values()]
+    tasks = [fetch(inst) for inst in to_query]
     results = await asyncio.gather(*tasks)
-    return [r for r in results if r is not None]
+    all_prices = [r for r in results if r is not None]
+
+    cheap_groups = {}
+    for r in all_prices:
+        key = (r["cpu"], r["mem"])
+        if key not in cheap_groups or r["monthly_price"] < cheap_groups[key]["monthly_price"]:
+            cheap_groups[key] = r
+
+    return list(cheap_groups.values())
 
 
 async def query_price(region_id: str, cpu: int, mem: int):

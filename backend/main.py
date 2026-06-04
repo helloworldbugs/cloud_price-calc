@@ -87,7 +87,7 @@ async def compare_prices(
     country: str = Query(...),
     city: str = Query("全部"),
     cpu: int = Query(0),
-    mem: int = Query(0),
+    mem: float = Query(0),
 ):
     if country not in COUNTRY_CITY_MAP:
         return {"error": f"不支持的国家: {country}"}
