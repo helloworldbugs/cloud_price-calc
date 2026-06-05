@@ -12,11 +12,7 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
 }
 
-_client = None
-_csrf_token = None
-_instance_cache = {}
-
-SIZE_TO_VCPU = {
+_SIZE_TO_VCPU = {
     "large": 2, "xlarge": 4,
     "2xlarge": 8, "3xlarge": 12, "4xlarge": 16, "5xlarge": 20,
     "6xlarge": 24, "7xlarge": 28, "8xlarge": 32, "9xlarge": 36,
@@ -31,6 +27,10 @@ SIZE_TO_VCPU = {
     "small": 1, "medium": 1, "micro": 1, "nano": 1,
 }
 
+_client = None
+_csrf_token = None
+_instance_cache = {}
+
 
 def _parse_instance_type(name: str):
     parts = name.split(".")
@@ -38,7 +38,7 @@ def _parse_instance_type(name: str):
         return 0, 0
     family = parts[1]
     size = parts[2]
-    cpu = SIZE_TO_VCPU.get(size, 0)
+    cpu = _SIZE_TO_VCPU.get(size, 0)
     if cpu == 0:
         m = re.match(r"(\d+)xlarge", size)
         if m:
@@ -47,7 +47,6 @@ def _parse_instance_type(name: str):
         return 0, 0
 
     m2 = re.search(r"c(\d+)m(\d+)", family)
-
     if m2:
         n = int(m2.group(1))
         mem_m = int(m2.group(2))
@@ -92,101 +91,134 @@ async def _ensure_csrf():
     return _csrf_token
 
 
-async def get_instance_types(region_id: str) -> list:
-    if region_id in _instance_cache:
-        return _instance_cache[region_id]
+async def _get_commodity_data(region_id: str):
     client = await _get_client()
-    url = "https://query.aliyun.com/rest/sell.ecs.availableInstanceTypes"
-    params = {"regionId": region_id, "domain": "aliyun", "zoneId": "", "saleStrategy": "PrePaid"}
+    url = "https://buy-api.aliyun.com/commodity/getCommodity.json"
+    params = {
+        "commodityCode": "bards",
+        "orderType": "BUY",
+        "commodityParams": "{}",
+        "channel": "calculator",
+        "request": '{"rds_region":"' + region_id + '"}',
+    }
     try:
         resp = await client.get(url, headers=HEADERS, params=params)
         data = resp.json()
-        instances_raw = data.get("data", {}).get("optimized", [])
-        result = []
-        for inst in instances_raw:
-            type_name = inst.get("value", "")
-            if not type_name:
-                continue
-            cpu, mem = _parse_instance_type(type_name)
-            if cpu > 0 and mem > 0:
-                result.append({"cpu": cpu, "mem": mem, "instance_type": type_name})
-        _instance_cache[region_id] = result
-        return result
+        if data.get("code") == "200":
+            return data.get("data", {})
     except Exception:
-        logger.exception("Failed to fetch Aliyun instance types for region %s", region_id)
-        return []
-
-
-def _find_instance_type(cpu: int, mem: int, instances: list):
-    for inst in instances:
-        if inst["cpu"] == cpu and inst["mem"] == mem:
-            return inst["instance_type"]
+        logger.exception("Failed to fetch Aliyun RDS commodity data for region %s", region_id)
     return None
 
 
-def _find_all_instance_types(cpu: int, mem: int, instances: list):
-    return [inst["instance_type"] for inst in instances if inst["cpu"] == cpu and inst["mem"] == mem]
+async def get_instance_types(region_id: str) -> list:
+    if region_id in _instance_cache:
+        return _instance_cache[region_id]
+
+    commodity_data = await _get_commodity_data(region_id)
+    if not commodity_data:
+        return []
+
+    components = commodity_data.get("components", {})
+    rds_class = components.get("rds_class", {}).get("rds_class", [])
+
+    result = []
+    for c in rds_class:
+        text = c.get("text", "")
+        value = c.get("value", "")
+        if not value or not value.startswith("mysql."):
+            continue
+
+        m = re.search(r"(\d+)\s*核\s*(\d+)\s*[GgMm]", text)
+        if m:
+            cpu = int(m.group(1))
+            mem = int(m.group(2))
+            if cpu > 0 and mem > 0:
+                result.append({"cpu": cpu, "mem": mem, "instance_type": value})
+        else:
+            cpu, mem = _parse_instance_type(value)
+            if cpu > 0 and mem > 0:
+                result.append({"cpu": cpu, "mem": mem, "instance_type": value})
+
+    _instance_cache[region_id] = result
+    return result
 
 
 async def _query_one_price(client, csrf, region_id, instance_type):
     headers = {**HEADERS}
     if csrf:
         headers["x-xsrf-token"] = csrf
+
     body = {
-        "tenant": "TenantCalculator", "channel": "calculator", "bizOccasion": "calculator",
+        "tenant": "TenantCalculator",
+        "channel": "calculator",
+        "bizOccasion": "calculator",
         "orderOrBilling": "order",
-        "configurations": [{"commodityCode": "vm", "specCode": "vm", "commodityName": "云服务器ECS-包年包月",
-            "chargeType": "PREPAY", "orderType": "BUY", "quantity": 1, "pricingCycle": "Month", "duration": "1",
+        "configurations": [{
+            "commodityCode": "bards",
+            "specCode": "bards",
+            "commodityName": "云数据库RDS-按量付费",
+            "chargeType": "POSTPAY",
+            "orderType": "BUY",
+            "quantity": 1,
+            "pricingCycle": "Hour",
+            "duration": "1",
             "components": [
-                {"componentCode": "vm_region_no", "instanceProperty": [{"code": "vm_region_no", "value": region_id}]},
-                {"componentCode": "instance_type", "instanceProperty": [
-                    {"code": "instance_type", "value": instance_type},
-                    {"code": "instance_type_family", "value": instance_type.rsplit(".", 1)[0]}]},
-                {"componentCode": "vm_os", "instanceProperty": [
-                    {"code": "vm_os", "value": "aliyun_3_x64_20G_alibase_20260513.vhd"},
-                    {"code": "vm_os_kind", "value": "linux"}, {"code": "vm_os_bit", "value": "64"}]}]}]}
+                {"componentCode": "rds_region", "instanceProperty": [{"code": "rds_region", "value": region_id}]},
+                {"componentCode": "rds_dbtype", "instanceProperty": [{"code": "rds_dbtype", "value": "mysql"}]},
+                {"componentCode": "rds_dbversion", "instanceProperty": [{"code": "rds_dbversion", "value": "8.0"}]},
+                {"componentCode": "rds_nodetype", "instanceProperty": [{"code": "rds_nodetype", "value": "Basic"}]},
+                {"componentCode": "rds_class", "instanceProperty": [{"code": "rds_class", "value": instance_type}]},
+                {"componentCode": "rds_storage", "instanceProperty": [{"code": "rds_storage", "value": "20"}]},
+                {"componentCode": "rds_storagetype", "instanceProperty": [{"code": "rds_storagetype", "value": "cloud_essd"}]},
+            ]
+        }]
+    }
     try:
         resp = await client.post("https://buy-api.aliyun.com/price/getLightWeightPrice2.json",
             headers=headers, json=body, params={"tenant": "TenantCalculator"}, timeout=15)
         data = resp.json()
         if data.get("code") == "200" and data.get("data"):
             order = data["data"].get("order", {})
-            trade_amount = order.get("tradeAmount")
-            original_amount = order.get("originalAmount")
-            amount = trade_amount if trade_amount is not None else original_amount
-            if amount is not None:
-                result = {"monthly_price": round(float(amount), 2)}
-                if original_amount is not None:
-                    result["original_monthly_price"] = round(float(original_amount), 2)
-                if trade_amount is not None:
-                    result["discount_monthly_price"] = round(float(trade_amount), 2)
-                return result
+            order_lines = order.get("orderLines", {})
+            instance_hourly = 0
+            for key, line in order_lines.items():
+                for mi in line.get("moduleInstance", []):
+                    if mi.get("moduleCode") == "rds_class":
+                        instance_hourly = float(mi.get("payFee", 0)) / 100
+                        break
+                if instance_hourly > 0:
+                    break
+            if instance_hourly > 0:
+                monthly = round(instance_hourly * 730, 2)
+                return {
+                    "monthly_price": monthly,
+                    "hourly_price": round(instance_hourly, 4),
+                    "is_ondemand": True,
+                }
+            monthly_hourly = round(float(order.get("tradeAmount", 0)), 2)
+            if monthly_hourly > 0:
+                return {
+                    "monthly_price": round(monthly_hourly * 730, 2),
+                    "hourly_price": monthly_hourly,
+                    "is_ondemand": True,
+                }
     except Exception:
-        logger.exception("Failed to query Aliyun price: region=%s instance=%s", region_id, instance_type)
+        logger.exception("Failed to query Aliyun RDS price: region=%s instance=%s", region_id, instance_type)
     return None
 
 
-async def query_all_prices(region_id: str, concurrency: int = 10):
+async def query_all_prices(region_id: str, concurrency: int = 5):
     instances = await get_instance_types(region_id)
     if not instances:
         return []
 
     groups = {}
-    multi_groups = {}
     for inst in instances:
         key = (inst["cpu"], inst["mem"])
         if key not in groups:
-            groups[key] = [inst]
-        else:
-            groups[key].append(inst)
-            multi_groups[key] = groups[key]
-
-    to_query = []
-    for key, insts in groups.items():
-        to_query.append(insts[0])
-        if len(insts) > 1:
-            for inst in insts[1:]:
-                to_query.append(inst)
+            groups[key] = []
+        groups[key].append(inst)
 
     client = await _get_client()
     csrf = await _ensure_csrf()
@@ -196,22 +228,15 @@ async def query_all_prices(region_id: str, concurrency: int = 10):
         async with sem:
             price_info = await _query_one_price(client, csrf, region_id, inst["instance_type"])
             if price_info is not None:
-                return {"provider": "阿里云", "instance_type": inst["instance_type"],
+                result = {"provider": "阿里云", "instance_type": inst["instance_type"],
                         "cpu": inst["cpu"], "mem": inst["mem"], "currency": "CNY",
                         "region_id": region_id, **price_info}
+                return result
             return None
 
-    tasks = [fetch(inst) for inst in to_query]
+    tasks = [fetch(groups[key][0]) for key in groups]
     results = await asyncio.gather(*tasks)
-    all_prices = [r for r in results if r is not None]
-
-    cheap_groups = {}
-    for r in all_prices:
-        key = (r["cpu"], r["mem"])
-        if key not in cheap_groups or r["monthly_price"] < cheap_groups[key]["monthly_price"]:
-            cheap_groups[key] = r
-
-    return list(cheap_groups.values())
+    return [r for r in results if r is not None]
 
 
 async def query_price(region_id: str, cpu: int, mem: int):
@@ -219,15 +244,16 @@ async def query_price(region_id: str, cpu: int, mem: int):
     if not instances:
         await get_instance_types(region_id)
         instances = _instance_cache.get(region_id, [])
-    matching_types = _find_all_instance_types(cpu, mem, instances) if instances else []
-    if not matching_types:
-        return {"provider": "阿里云", "error": f"该地域无 {cpu}核{mem}G 的实例规格"}
+
+    matching = [inst for inst in instances if inst["cpu"] == cpu and inst["mem"] == mem]
+    if not matching:
+        return {"provider": "阿里云", "error": f"该地域无 {cpu}核{mem}G 的RDS规格"}
 
     client = await _get_client()
     csrf = await _ensure_csrf()
 
     best = None
-    for instance_type in matching_types:
+    for instance_type in [m["instance_type"] for m in matching]:
         price_info = await _query_one_price(client, csrf, region_id, instance_type)
         if price_info is not None:
             price = price_info.get("monthly_price", float("inf"))
@@ -237,4 +263,4 @@ async def query_price(region_id: str, cpu: int, mem: int):
     if best:
         return {"provider": "阿里云", "instance_type": best[0], "cpu": cpu, "mem": mem,
                 "currency": "CNY", "region_id": region_id, **best[2]}
-    return {"provider": "阿里云", "error": f"查询 {cpu}核{mem}G 价格失败"}
+    return {"provider": "阿里云", "error": f"查询 {cpu}核{mem}G RDS价格失败"}
