@@ -235,14 +235,15 @@
                      @click="selectResource('ecs')">
                     <span class="type-icon">&#9998;</span>云服务器
                 </div>
-                <div class="resource-type-btn coming-soon" title="即将上线">
-                    <span class="type-icon">&#9881;</span>数据库
+                <div class="resource-type-btn" :class="{active: selectedResource === 'rds'}"
+                     @click="selectResource('rds')">
+                    <span class="type-icon" style="font-size:20px;margin-right:8px;">&#128451;</span>云数据库
                 </div>
             </div>
         </div>
 
-        <div class="card spec-card slide-enter-active" v-if="selectedResource === 'ecs'">
-            <h2>云服务器规格 <span v-if="specsLoading" style="font-size:12px;color:#8899aa;font-weight:400;">加载中...</span></h2>
+        <div class="card spec-card slide-enter-active" v-if="selectedResource === 'ecs' || selectedResource === 'rds'">
+            <h2>{{ selectedResource === 'rds' ? '云数据库规格' : '云服务器规格' }} <span v-if="specsLoading" style="font-size:12px;color:#8899aa;font-weight:400;">加载中...</span></h2>
             <div class="form-grid">
                 <div class="form-group">
                     <label>CPU (核)</label>
@@ -338,8 +339,9 @@
                             <span>规格: {{ r.instance_type }}</span>
                             <span v-if="r.cpu">{{ r.cpu }}核{{ r.mem % 1 === 0 ? r.mem : r.mem }}G</span>
                             <span v-else-if="r.query_cpu">{{ r.query_cpu }}核{{ r.query_mem }}G</span>
-                            <span class="complete-badge">主机规格价</span>
+                            <span class="complete-badge">{{ selectedResource === 'rds' ? '纯实例价' : '主机规格价' }}</span>
                             <span v-if="r.is_ondemand" class="ondemand-badge">仅按需 | ¥{{ r.hourly_price }}/时 → 月估¥{{ r.monthly_price }}</span>
+                            <span v-if="r.note" class="ondemand-badge">{{ r.note }}</span>
                         </div>
                     </div>
                 </div>
@@ -464,9 +466,10 @@ createApp({
         };
 
         const selectResource = (v) => {
-            if (v === 'db') return;
             selectedResource.value = v;
             results.value = []; searched.value = false;
+            selectedCpu.value = null; selectedMem.value = null;
+            loadSpecs();
         };
 
         const selectCpu = (v) => { selectedCpu.value = v; openDrop.value = null; searchCpu.value = ''; };
@@ -487,7 +490,8 @@ createApp({
                     country: selectedCountry.value || '中国',
                     city: selectedCity.value || '',
                 });
-                const sRes = await fetch(`${API_BASE}/api/specs?${params}`);
+                const apiPath = selectedResource.value === 'rds' ? '/api/rds/specs' : '/api/specs';
+                const sRes = await fetch(`${API_BASE}${apiPath}?${params}`);
                 const sData = await sRes.json();
                 specs.value = sData.data?.specs || [];
                 allCpus.value = sData.data?.cpus || [];
@@ -510,13 +514,14 @@ createApp({
             if (!selectedCountry.value) return;
             loading.value = true; searched.value = true; results.value = [];
             try {
+                const apiPath = selectedResource.value === 'rds' ? '/api/rds/compare' : '/api/compare';
                 const params = new URLSearchParams({
                     country: selectedCountry.value,
                     city: selectedCity.value || '全部',
                     cpu: selectedCpu.value || 0,
                     mem: selectedMem.value || 0,
                 });
-                const resp = await fetch(`${API_BASE}/api/compare?${params}`, { method: 'POST' });
+                const resp = await fetch(`${API_BASE}${apiPath}?${params}`, { method: 'POST' });
                 const data = await resp.json();
                 results.value = data.data || [];
                 providers.value = data.providers || {};
