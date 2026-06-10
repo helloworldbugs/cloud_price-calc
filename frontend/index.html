@@ -334,7 +334,7 @@
                             </span>
                         </div>
                         <div class="result-details">
-                            <span v-if="r.city">城市: {{ r.city }}</span>
+                            <span v-if="r.display_region || r.city">地区: {{ r.display_region || r.city }}</span>
                             <span>规格: {{ r.instance_type }}</span>
                             <span v-if="r.cpu">{{ r.cpu }}核{{ r.mem % 1 === 0 ? r.mem : r.mem }}G</span>
                             <span v-else-if="r.query_cpu">{{ r.query_cpu }}核{{ r.query_mem }}G</span>

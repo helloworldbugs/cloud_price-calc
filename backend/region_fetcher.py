@@ -118,7 +118,7 @@ async def fetch_aliyun_regions(client: httpx.AsyncClient) -> list:
             else:
                 m = re.search(r"[\u4e00-\u9fa5]+", name)
                 country, city = "其他", m.group(0) if m else rid
-            result.append({"id": rid, "country": country, "city": city, "provider": "aliyun"})
+            result.append({"id": rid, "country": country, "city": city, "provider": "aliyun", "display": name or rid})
         return result
     except Exception:
         logger.exception("Failed to fetch Aliyun regions")
@@ -127,8 +127,29 @@ async def fetch_aliyun_regions(client: httpx.AsyncClient) -> list:
 
 async def fetch_tencent_regions(client: httpx.AsyncClient) -> list:
     result = []
-    for rid, (country, city) in TENCENT_REGION_NAMES.items():
-        result.append({"id": rid, "country": country, "city": city, "provider": "tencent"})
+    try:
+        resp = await client.get(
+            "https://workbench.cloud.tencent.com/cgi/area/queryCvmRegion",
+            headers={**HEADERS, "Referer": "https://buy.cloud.tencent.com/price/cvm/overview", "Origin": "https://buy.cloud.tencent.com"},
+            timeout=15,
+        )
+        data = resp.json()
+        regions_raw = data.get("data", {}).get("Response", {}).get("RegionSet", [])
+        for r in regions_raw:
+            rid = r.get("region", "")
+            name = r.get("name", "")
+            area = r.get("area", "")
+            if rid and name:
+                if rid in TENCENT_REGION_NAMES:
+                    country, city = TENCENT_REGION_NAMES[rid]
+                else:
+                    country, city = "其他", name
+                display = f"{name}"  # 腾讯云控制台radio按钮只显示城市名
+                result.append({"id": rid, "country": country, "city": city, "provider": "tencent", "display": display})
+    except Exception:
+        logger.exception("Failed to fetch Tencent regions dynamically, falling back to static map")
+        for rid, (country, city) in TENCENT_REGION_NAMES.items():
+            result.append({"id": rid, "country": country, "city": city, "provider": "tencent"})
     return result
 
 
@@ -193,4 +214,4 @@ async def build_country_city_map() -> dict:
         if c not in sorted_result:
             sorted_result[c] = dict(sorted(result[c].items()))
 
-    return sorted_result
+    return sorted_result, aliyun_regions, tencent_regions

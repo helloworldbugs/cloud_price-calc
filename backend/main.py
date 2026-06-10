@@ -27,6 +27,17 @@ app.add_middleware(
 )
 
 COUNTRY_CITY_MAP = {}
+ALIYUN_DISPLAY_MAP = {}
+TENCENT_DISPLAY_MAP = {}
+
+def _region_display(provider_name, region_id, city_label):
+    if provider_name == "阿里云" and region_id in ALIYUN_DISPLAY_MAP:
+        return ALIYUN_DISPLAY_MAP[region_id]
+    if provider_name == "腾讯云" and region_id in TENCENT_DISPLAY_MAP:
+        return TENCENT_DISPLAY_MAP[region_id]
+    if provider_name == "华为云":
+        return city_label
+    return city_label
 
 
 def _region_ids(provider_map: dict, provider_key: str) -> list:
@@ -40,8 +51,18 @@ def _region_ids(provider_map: dict, provider_key: str) -> list:
 
 @app.on_event("startup")
 async def startup():
-    global COUNTRY_CITY_MAP
-    COUNTRY_CITY_MAP = await build_country_city_map()
+    global COUNTRY_CITY_MAP, ALIYUN_DISPLAY_MAP, TENCENT_DISPLAY_MAP
+    result = await build_country_city_map()
+    if isinstance(result, tuple):
+        COUNTRY_CITY_MAP, aliyun_regions, tencent_regions = result
+        for reg in aliyun_regions:
+            if reg.get("display"):
+                ALIYUN_DISPLAY_MAP[reg["id"]] = reg["display"]
+        for reg in tencent_regions:
+            if reg.get("display"):
+                TENCENT_DISPLAY_MAP[reg["id"]] = reg["display"]
+    else:
+        COUNTRY_CITY_MAP = result
 
 
 @app.get("/api/countries")
@@ -141,10 +162,14 @@ async def compare_prices(
             for region_id in _region_ids(provider_map, "huawei"):
                 tasks.append(huawei_provider.query_all_prices(region_id))
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in results:
+            for region_id, r in zip(
+                [rid for pid_list in [("aliyun", provider_map), ("tencent", provider_map), ("huawei", provider_map)]
+                 for rid in _region_ids(provider_map, pid_list[0])], results
+            ):
                 if isinstance(r, list):
                     for item in r:
                         item["city"] = city_name
+                        item["display_region"] = _region_display(item.get("provider", ""), item.get("region_id", ""), city_name)
                     all_results.extend(r)
 
     if filter_cpu and not filter_mem:
@@ -174,6 +199,7 @@ async def _query_one(provider_name, query_func, region_id, cpu, mem, city_label)
         r = await query_func(region_id, cpu, mem)
         if isinstance(r, dict):
             r["city"] = city_label
+            r["display_region"] = _region_display(provider_name, r.get("region_id", region_id), city_label)
             r["query_cpu"] = cpu
             r["query_mem"] = mem
         return r
